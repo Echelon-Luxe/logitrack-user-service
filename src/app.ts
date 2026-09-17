@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { buildLogger } from './logging.js';
 import { registry, httpRequests } from './metrics.js';
 import { authRoutes } from './routes/auth.js';
 import { registerErrorHandler } from './errors.js';
@@ -12,14 +13,13 @@ export const setReady = (v: boolean): void => { ready = v; };
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
-    logger: {
-      level: process.env['LOG_LEVEL'] ?? 'info',
+    loggerInstance: buildLogger(SERVICE_NAME, {
       // Passwords and tokens must never reach the log collector.
       redact: {
         paths: ['req.body.password', 'req.body.refreshToken', 'req.headers.authorization'],
         censor: '[redacted]',
       },
-    },
+    }),
     trustProxy: true,
   });
 
