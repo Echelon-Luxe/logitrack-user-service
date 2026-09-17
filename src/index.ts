@@ -1,4 +1,5 @@
 import { buildApp, setReady, SERVICE_NAME } from './app.js';
+import { closeLogger } from './logging.js';
 import { initKeys } from './domain/tokens.js';
 import { pingDb } from './db/client.js';
 
@@ -32,11 +33,16 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     app.log.info({ signal }, 'shutting down');
     // Fail readiness before closing so the pod leaves Service endpoints first.
     setReady(false);
-    void app.close().then(() => process.exit(0));
+    void (async () => {
+      await app.close();
+      // Last: flush what Seq is still batching before the process goes.
+      await closeLogger();
+      process.exit(0);
+    })();
   });
 }
 
 main().catch((err: unknown) => {
   app.log.error({ err }, 'failed to start');
-  process.exit(1);
+  void closeLogger().then(() => process.exit(1));
 });
