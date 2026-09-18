@@ -1,5 +1,10 @@
 generator client {
   provider = "prisma-client-js"
+  // Pinned, not detected. The build stage (node:24-bookworm-slim) has no
+  // openssl CLI, so Prisma cannot detect the platform and falls back to
+  // debian-openssl-1.1.x - while the distroless runtime needs 3.0.x, and
+  // the engine it looks for is simply absent from the image.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
