@@ -51,11 +51,17 @@ export interface AccessClaims {
   sub: string;
   email: string;
   role: string;
+  // Lets backends stamp a display name on records without calling back here.
+  name?: string;
 }
 
 export async function signAccessToken(claims: AccessClaims): Promise<string> {
   if (!privateKey) throw new Error('keys not initialised');
-  return new SignJWT({ email: claims.email, role: claims.role })
+  return new SignJWT({
+    email: claims.email,
+    role: claims.role,
+    ...(claims.name ? { name: claims.name } : {}),
+  })
     .setProtectedHeader({ alg: ALG, kid })
     .setSubject(claims.sub)
     .setIssuer(ISSUER)

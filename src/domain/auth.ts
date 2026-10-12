@@ -27,14 +27,23 @@ export interface TokenPair {
   expiresIn: number;
 }
 
-export type PublicUser = Pick<User, 'id' | 'email' | 'name' | 'role' | 'active' | 'createdAt'>;
+export type PublicUser = Pick<User, 'id' | 'email' | 'name' | 'phone' | 'role' | 'active' | 'createdAt'>;
 
 export const toPublic = (u: User): PublicUser => ({
-  id: u.id, email: u.email, name: u.name, role: u.role, active: u.active, createdAt: u.createdAt,
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  // ?? null: test doubles and rows read before the column existed lack it.
+  phone: u.phone ?? null,
+  role: u.role,
+  active: u.active,
+  createdAt: u.createdAt,
 });
 
 async function issue(db: PrismaClient, user: User, familyId?: string): Promise<TokenPair> {
-  const accessToken = await signAccessToken({ sub: user.id, email: user.email, role: user.role });
+  const accessToken = await signAccessToken({
+    sub: user.id, email: user.email, role: user.role, name: user.name,
+  });
   const { token, hash } = newRefreshToken();
   await db.refreshToken.create({
     data: {
@@ -49,7 +58,7 @@ async function issue(db: PrismaClient, user: User, familyId?: string): Promise<T
 
 export async function register(
   db: PrismaClient,
-  input: { email: string; password: string; name: string; role?: 'CUSTOMER' | 'DRIVER' | 'ADMIN' },
+  input: { email: string; password: string; name: string; phone?: string; role?: 'CUSTOMER' | 'DRIVER' },
 ): Promise<{ user: PublicUser; tokens: TokenPair }> {
   const email = input.email.toLowerCase();
   if (await db.user.findUnique({ where: { email } })) {
@@ -59,6 +68,7 @@ export async function register(
     data: {
       email,
       name: input.name,
+      ...(input.phone ? { phone: input.phone } : {}),
       passwordHash: await hashPassword(input.password),
       role: input.role ?? 'CUSTOMER',
     },
@@ -108,6 +118,34 @@ export async function refresh(db: PrismaClient, presented: string): Promise<Toke
 
   await db.refreshToken.update({ where: { id: row.id }, data: { revokedAt: new Date() } });
   return issue(db, row.user, row.familyId);
+}
+
+/**
+ * Changing a password ends every other session: if the old password leaked,
+ * whoever used it may still hold a refresh token.
+ */
+export async function changePassword(
+  db: PrismaClient,
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+): Promise<void> {
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user || !(await verifyPassword(input.currentPassword, user.passwordHash))) {
+    throw new AuthError('Current password is incorrect');
+  }
+  await db.user.update({
+    where: { id: userId },
+    data: { passwordHash: await hashPassword(input.newPassword) },
+  });
+  await revokeAllSessions(db, userId);
+}
+
+export async function revokeAllSessions(db: PrismaClient, userId: string): Promise<number> {
+  const r = await db.refreshToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  return r.count;
 }
 
 export async function logout(db: PrismaClient, presented: string): Promise<void> {

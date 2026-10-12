@@ -13,10 +13,15 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// What each role may do is in logitrack-infrastructure/docs/rbac.md.
 enum Role {
   CUSTOMER
   DRIVER
   ADMIN
+  // Runs the floor: assigns drivers, manages every shipment.
+  DISPATCHER
+  // Read-only across the platform, for answering customer queries.
+  SUPPORT
 }
 
 model User {
@@ -25,6 +30,7 @@ model User {
   // scrypt output, never the password itself.
   passwordHash String
   name         String
+  phone        String?
   role         Role     @default(CUSTOMER)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -50,4 +56,24 @@ model RefreshToken {
 
   @@index([userId, revokedAt])
   @@index([familyId])
+}
+
+// Who did what to whom. Append-only: rows are never updated or deleted, so the
+// log stays trustworthy even when an admin account is the thing under review.
+model AuditLog {
+  id         String   @id @default(uuid())
+  // Null for anonymous actions, e.g. a failed login for an unknown email.
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+  @@index([action, createdAt])
 }
